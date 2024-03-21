@@ -1,0 +1,46 @@
+stages:
+  - build
+  - deploy
+  - verify
+
+decrypt_base64:
+  image: bash
+  stage: .pre
+  script:
+    - chmod +x ${ROOT}/build/decode64.sh
+    - ${ROOT}/build/decode64.sh
+  artifacts:
+    paths:
+      - ${ROOT}/build/conf/.ssh/id_rsa
+      - ${ROOT}/build/conf/.ssh/id_rsa.pub
+      - ${ROOT}/build/conf/.ssl/monitor/letsencrypt/live/monitor.isinetwork.fr/fullchain.pem
+      - ${ROOT}/build/conf/.ssl/monitor/letsencrypt/live/monitor.isinetwork.fr/privkey.pem
+      - ${ROOT}/build/conf/.ssl/monitor/letsencrypt/ssl-dhparams.pem
+    expire_in: 1 hour
+
+terraform_monitor:
+  image: devopsinfra/docker-terragrunt:aws-latest
+  stage: build
+  services:
+    - docker:dind
+  before_script:
+    - echo ${GITLAB_ACCESS_TOKEN} | docker login registry.gitlab.com -u ${TF_HTTP_USERNAME} --password-stdin
+    - chmod 0600 ${ROOT}/build/conf/.ssh/id_rsa
+    - chmod 0600 ${ROOT}/build/conf/.ssh/id_rsa.pub
+  script:
+    - docker build --file ./build/docker/Dockerfile.nginx -t registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-monitor-nginx .
+    - docker push registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-monitor-nginx
+    - terraform -chdir=./build/terraform init -input=false
+    - terraform -chdir=./build/terraform apply -auto-approve
+
+ansible_monitor:
+  image: alpinelinux/ansible:latest
+  stage: deploy
+  before_script:
+    - cp ./build/conf/.ssh/id_rsa ./build/ansible/id_rsa
+    - cp ./build/conf/.ssh/id_rsa ./build/ansible/id_rsa.pub
+    - chmod 0600 ${ROOT}/build/ansible/id_rsa
+    - chmod 0644 ${ROOT}/build/ansible/id_rsa.pub
+  script:
+    - cd /builds/lacapsule-batch6/morningnews-monitor/build/ansible
+    - ansible-playbook -v -i ./inventory.ini ./playbook.yml --private-key ./id_rsa

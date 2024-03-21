@@ -1,0 +1,110 @@
+---
+- name: Configure EC2 instance with containers hosting nginx and node
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Set Hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+    
+    - name: Set timezone
+      ansible.builtin.timezone:
+        name: Europe/Paris
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - gnupg
+        state: present
+        update_cache: yes
+
+    - name: Ajouter la clé GPG officielle de Docker
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+
+    - name: Ajouter le dépôt officiel de Docker
+      ansible.builtin.apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_lsb.codename }} stable
+        state: present
+
+    - name: Installer Docker CE
+      ansible.builtin.apt:
+        name: docker-ce
+        state: present
+
+    - name: Ajouter l'utilisateur au groupe Docker
+      ansible.builtin.user:
+        name: "admin"
+        group: docker
+        append: yes
+
+    - name: Installer Docker Compose
+      ansible.builtin.apt:
+        name: docker-compose
+        state: present
+
+    - name: Copie du dossier de configuration Nginx
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/build/conf/.ssl/monitor/nginx
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie des certificats pour https
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/build/conf/.ssl/monitor/letsencrypt
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Read/Write Rights on config files
+      command: sudo chmod 0755 -R /home/admin/nginx /home/admin/letsencrypt
+
+    - name: Transfer docker-compose.yml
+      copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/build/docker/docker-compose.yml
+        dest: /home/admin/docker-compose.yml
+
+    - name: Copie Alertmanager
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/alertmanager
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie Caddy
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/caddy
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie Grafana
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/grafana
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie Promotheus
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/prometheus
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie helpers
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-monitor/helpers
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Run containers
+      command: docker-compose up -d
